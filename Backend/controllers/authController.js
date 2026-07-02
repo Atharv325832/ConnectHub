@@ -12,11 +12,7 @@ const cookieParser = require('cookie-parser');
  * @access Public
  */
 async function registerData(req,res){
-   const {username,email,password}=req.body;
-   const userExist= await authmodel.findOne({username});
-   if(userExist){
-    return res.status(400).json({message:"User already exists"});
-   }
+   const {email,password}=req.body;
    const emailExist= await authmodel.findOne({email});
    if(emailExist){
     return res.status(400).json({message:"Email already exists"});
@@ -24,7 +20,6 @@ async function registerData(req,res){
     const hashedPassword = await bcrypt.hash(password,10);
 
 const newUser = await authmodel.create({
-    username,
     email,
     password: hashedPassword
 });
@@ -40,40 +35,91 @@ const token =jwt.sign({id:newUser._id},process.env.JWT_SECRET,{expiresIn:'1h'});
  * @route POST /login
  * @access Public
  */
- async function loginData(req,res){
-    const {username,password}=req.body;
-    const user= await authmodel.findOne({username});
-    if(!user){
-        return res.status(400).json({message:"User not found"});
+ async function loginData(req, res) {
+    const { email, password } = req.body;
+ console.log(req.body);
+    const user = await authmodel.findOne({ email });
+
+    if (!user) {
+        return res.status(400).json({
+            message: "User not found"
+        });
     }
+
     const isMatch = await bcrypt.compare(password, user.password);
-    if(!isMatch){
-        return res.status(400).json({message:"Invalid credentials"});
+
+    if (!isMatch) {
+        return res.status(400).json({
+            message: "Invalid credentials"
+        });
     }
-    const token =jwt.sign({id:user._id},process.env.JWT_SECRET,{expiresIn:'1h'});
 
-    res.cookie('token', token, {httpOnly:true, maxAge:3600000});
-    res.status(200).json({message:"Login successful", token});
+    const token = jwt.sign(
+        { id: user._id },
+        process.env.JWT_SECRET,
+        { expiresIn: "1h" }
+    );
+
+    res.cookie("token", token, {
+        httpOnly: true,
+        secure: false,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 3600000,
+    });
+
+    res.status(200).json({
+    message: "Login successful",
+    user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email
+    }
+});
 }
-
 /**
  * @desc Logout a user
- * @route POST /logout
+ * @route POST /logout  
  * @access Public
  */
- async function logoutData(req,res){
+async function logoutData(req,res){ 
     const token = req.cookies.token;
     if(!token){
         return res.status(400).json({message:"No token found"});
+    }  
+    const blacklistedToken = await Blacklist.findOne({ token });
+    if (blacklistedToken) {
+        return res.status(400).json({ message: "Token already blacklisted" });
     }
-    const blacklistedToken = await Blacklist.create({ token });
+  res.clearCookie("token", {
+  httpOnly: true,
+  secure: false,
+  sameSite: "lax",
+  path: "/",
+});
 
-    res.clearCookie('token', { httpOnly: true });
-    res.status(200).json({message:"Logout successful"});
+
+res.status(200).json({ message: "Logged out successfully" });
+}   
+
+ /**
+ * @desc Get user data
+ * @route GET /me   
+ **/
+async function getUserData(req, res) {
+    console.log("req.user:", req.user);
+
+    const user = await authmodel.findById(req.user.id).select("-password");;
+
+    console.log("user:", user);
+
+    res.json(user);
 }
+
 
 module.exports={
     registerData,
     loginData,
-    logoutData
+    logoutData,
+    getUserData
 };
